@@ -1,7 +1,10 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Yarp.ReverseProxy.Configuration;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,6 +53,33 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.Use(async (ctx, next) =>
+{
+    if (ctx.User?.Identity?.IsAuthenticated == true)
+    {
+        var sub   = ctx.User.FindFirst("sub")?.Value
+                    ?? ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var email = ctx.User.FindFirst("email")?.Value
+                    ?? ctx.User.FindFirst(ClaimTypes.Email)?.Value;
+        var name  = ctx.User.FindFirst("name")?.Value
+                    ?? ctx.User.FindFirst(ClaimTypes.Name)?.Value;
+
+        // strip any client-supplied spoofed values, then set ours
+        ctx.Request.Headers.Remove("X-User-Id");
+        ctx.Request.Headers.Remove("X-User-Email");
+        ctx.Request.Headers.Remove("X-User-Name");
+
+        if (!string.IsNullOrEmpty(sub))   ctx.Request.Headers["X-User-Id"]   = sub;
+        if (!string.IsNullOrEmpty(email)) ctx.Request.Headers["X-User-Email"] = email;
+        if (!string.IsNullOrEmpty(name))  ctx.Request.Headers["X-User-Name"]  = name;
+
+        // (optional) hide JWT from downstream services
+        ctx.Request.Headers.Remove("Authorization");
+    }
+
+    await next();
+});
 
 app.MapReverseProxy();
 
